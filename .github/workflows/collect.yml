@@ -1,0 +1,47 @@
+# 창원 아파트 실거래 자동 수집 — 버전 v1.0 | 작성일 2026-11-02
+# 매주 토요일 18:00 KST(09:00 UTC) 실행. Actions 탭에서 "Run workflow"로 수동 실행도 가능.
+name: collect-changwon
+
+on:
+  schedule:
+    - cron: "0 9 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      CHANGWON_API_KEY: ${{ secrets.CHANGWON_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install requests pandas numpy
+
+      - name: Collect raw CSV (국토부 API, 2024-01 ~ 이번 달)
+        run: python changwon_all_collect.py
+
+      - name: Build light CSV (4 files)
+        run: |
+          BASIS=$(date +%F)
+          mkdir -p data/light
+          mv -f changwon_all_apt_trade.csv changwon_all_apt_rent.csv data/
+          python changwon_data_process.py data/changwon_all_apt_trade.csv data/changwon_all_apt_rent.csv "$BASIS" data/light
+          echo "$BASIS" > data/BASIS.txt
+
+      - name: Commit & push
+        run: |
+          git config user.name "changwon-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git commit -m "data: $(cat data/BASIS.txt) 수집" || echo "no changes"
+          git push
